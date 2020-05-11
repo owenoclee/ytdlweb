@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Video Downloader</title>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background-color: #222;
+    }
+
+    #height-filler {
+      height: 30%;
+    }
+
+    #download-area {
+      color: #eee;
+      font-family: monospace, sans-serif, serif;
+      background-color: #444;
+      width: 384px;
+      padding: 20px 18px;
+      margin: 0 auto;
+      border-radius: 16px;
+      border: 1px solid hsl(180, 100%, 50%);
+      transition: border-color 30ms linear;
+    }
+
+    #input-container {
+      display: flex;
+      align-items: center;
+    }
+
+    #input-container input {
+      flex: 1;
+      height: 2.5em;
+      padding: 0;
+    }
+
+    #input-container button {
+      flex-basis: 1;
+      margin-left: 10px;
+      height: 2.5em;
+      padding: 0;
+    }
+
+    #input-container label {
+      margin-right: 5px;
+    }
+
+    #output-group {
+      display: none;
+      color: #ccc;
+      background-color: #333;
+      padding: 10px 13px;
+      font-size: 0.8rem;
+      margin-top: 10px;
+      border-radius: 3px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    #output-text {
+      margin: 0;
+    }
+  </style>
+  <script>
+    var app = {};
+    app.state = {};
+
+    function updateStatus() {
+      $.ajax({
+        url: app.state.jobStatusURL,
+        type : 'GET',
+        dataType: 'json',
+        success: function(data, status, jqXHR) {
+          console.log(data);
+          if(data.status != 'queued' && data.status != 'processing') {
+            clearInterval(app.state.poller);
+          }
+
+          $('#output-text').html(data.output);
+        },
+      });
+    }
+
+    $(document).ready(function() {
+      $('#download-button').click(function() {
+        $.ajax({
+          url: '/download',
+          type : 'POST',
+          data : JSON.stringify({ url: $('#download-input').val() }),
+          contentType : 'application/json',
+          success: function(data, status, jqXHR) {
+            app.state.jobStatusURL = jqXHR.getResponseHeader('Location');
+            // app.state.poller = setInterval(updateStatus, 1000);
+            $('#output-text').text(data);
+          },
+          error: function(jqXHR, status, error) {
+            $('#output-text').text('error. refresh and try again.');
+          },
+          complete: function(jqXHR, status) {
+            $('#output-group').css('display', 'block');
+          },
+        });
+      });
+
+      downloadArea = $('#download-area')
+      hue = 180;
+      setInterval(function() {
+          downloadArea.css('border-color', `hsl(${hue}, 100%, 50%)`);
+          hue = (hue + 1) % 360;
+      }, 30);
+    });
+  </script>
+</head>
+<body>
+  <div id="height-filler"></div>
+  <div id="wrapper">
+    <div id="download-area">
+      <div id="input-group">
+        <div id="input-container">
+          <input type="text" placeholder='enter a url' id="download-input">
+          <button id="download-button">lets go</button>
+        </div>
+      </div>
+      <div id="output-group">
+        <div>
+          <span id="output-text"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+
