@@ -1,142 +1,66 @@
 package main
 
 import (
-	"bufio"
-	"context"
-	"crypto/md5"
-	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
+	"strconv"
 
 	"github.com/go-chi/chi"
-	"github.com/go-chi/chi/middleware"
+	"github.com/go-redis/redis"
 	"gopkg.in/unrolled/render.v1"
 )
 
-var b32 = base32.NewEncoding("afhijkoqrtuvwxyzAFHIJKOQRTUVWXYZ")
-
-type downloadRequest struct {
-	URL string `json:"url"`
-}
-
-type job struct {
-	ID      string `json:"id"`
-	Payload string `json:"payload"`
-	Status  string `json:"status"`
-	Output  string `json:"output,omitempty"`
-}
-
-func newJob(url string) job {
-	hash := md5.Sum([]byte(url))
-	j := job{
-		ID:      b32.EncodeToString(hash[:])[0:8],
-		Payload: url,
-		Status:  "queued",
-	}
-	return j
-}
-
-type jobStore struct {
-	jobs map[string]job
-	m    sync.Mutex
-}
-
-func newJobStore() *jobStore {
-	return &jobStore{
-		jobs: map[string]job{},
-		m:    sync.Mutex{},
-	}
-}
-
-func (s *jobStore) put(job job) {
-	s.m.Lock()
-	s.jobs[job.ID] = job
-	s.m.Unlock()
-}
-
-func (s *jobStore) get(id string) (job, bool) {
-	s.m.Lock()
-	job, ok := s.jobs[id]
-	s.m.Unlock()
-
-	return job, ok
-}
-
 func main() {
-	r := chi.NewRouter()
-	re := render.New()
+	mux := chi.NewRouter()
+	ren := render.New()
+	rds := redis.NewClient(&redis.Options{})
 
-	s := newJobStore()
-	ctx, cancel := context.WithCancel(context.Background())
-	q := queue(ctx, s, 4)
+	go queue(rds, 4)
 
-	r.Use(middleware.Logger)
-
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "index.html")
 	})
 
-	r.Post("/download", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/download", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)
-		d := json.NewDecoder(r.Body)
-		var dlReq downloadRequest
-		err := d.Decode(&dlReq)
+		job := &job{}
+		err := json.NewDecoder(r.Body).Decode(job)
 		if err != nil {
-			re.Text(w, http.StatusBadRequest, "bad request")
+			ren.Text(w, http.StatusBadRequest, "unable to decode input")
 			return
 		}
 
-		job := newJob(dlReq.URL)
-		q <- job
+		id, err := rds.Incr("job_id").Result()
+		if err != nil {
+			ren.Text(w, http.StatusInternalServerError, "failed on redis")
+		}
 
-		w.Header().Set("Location", fmt.Sprintf("/download/%s", job.ID))
+		job.ID = id
+		job.Status = "queued"
+		job.Output = ""
+
+		rds.Set(job.Key(), job, 0)
+		rds.Publish("download_queue", job.Key())
+
+		w.Header().Set("Location", fmt.Sprintf("/download/%d", job.ID))
 	})
 
-	r.Get("/download/{id}", func(w http.ResponseWriter, r *http.Request) {
-		job, ok := s.get(chi.URLParam(r, "id"))
-		if !ok {
-			re.Text(w, http.StatusNotFound, "job not found")
+	mux.Get("/download/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			ren.Text(w, http.StatusBadRequest, "given id is invalid")
 			return
 		}
 
-		re.JSON(w, 200, job)
+		job := &job{}
+		err = rds.Get(JobKey(id)).Scan(job)
+		if err != nil {
+			ren.Text(w, http.StatusNotFound, "job not found")
+		}
+
+		ren.JSON(w, 200, job)
 	})
 
-	http.ListenAndServe(":3000", r)
-	cancel()
-}
-
-func queue(ctx context.Context, s *jobStore, workers int) chan<- job {
-	q := make(chan job)
-
-	for i := 0; i < workers; i++ {
-		go downloadWorker(ctx, q, s)
-	}
-
-	return q
-}
-
-func downloadWorker(ctx context.Context, q <-chan job, s *jobStore) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case job := <-q:
-			fmt.Printf("got job %s\n", job.ID)
-			output, err := download(job.Payload)
-			if err != nil {
-				fmt.Printf("skipping job %s: %v\n", job.ID, err)
-				continue
-			}
-			scanner := bufio.NewScanner(output)
-			for scanner.Scan() {
-				fmt.Println(scanner.Text())
-			}
-			fmt.Println("finished scanning")
-			job.Status = "processing"
-			s.put(job)
-		}
-	}
+	http.ListenAndServe(":3000", mux)
 }

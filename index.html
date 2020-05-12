@@ -19,7 +19,7 @@
       color: #eee;
       font-family: monospace, sans-serif, serif;
       background-color: #444;
-      width: 384px;
+      width: 500px;
       padding: 20px 18px;
       margin: 0 auto;
       border-radius: 16px;
@@ -94,7 +94,7 @@
           contentType : 'application/json',
           success: function(data, status, jqXHR) {
             app.state.jobStatusURL = jqXHR.getResponseHeader('Location');
-            // app.state.poller = setInterval(updateStatus, 1000);
+            app.state.poller = setInterval(updateStatus, 1000);
             $('#output-text').text(data);
           },
           error: function(jqXHR, status, error) {
@@ -134,4 +134,3 @@
   </div>
 </body>
 </html>
-
