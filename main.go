@@ -1,5 +1,7 @@
 package main
 
+//go:generate go run pack_public.go
+
 import (
 	"encoding/json"
 	"fmt"
@@ -18,9 +20,7 @@ func main() {
 
 	go queue(rds, 4)
 
-	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "index.html")
-	})
+	mux.Get("/", http.FileServer(publicAssets).ServeHTTP)
 
 	mux.Post("/download", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)

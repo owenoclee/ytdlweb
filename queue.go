@@ -14,7 +14,7 @@ func queue(r *redis.Client, workers int) {
 		go downloadWorker(r, todo)
 	}
 
-	pubsub := r.Subscribe("download_request")
+	pubsub := r.Subscribe("download_queue")
 	_, err := pubsub.Receive()
 	if err != nil {
 		panic(err)
