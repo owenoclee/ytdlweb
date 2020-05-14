@@ -34,6 +34,7 @@ func main() {
 		id, err := rds.Incr("job_id").Result()
 		if err != nil {
 			ren.Text(w, http.StatusInternalServerError, "failed on redis")
+			return
 		}
 
 		job.ID = id
@@ -57,6 +58,7 @@ func main() {
 		err = rds.Get(JobKey(id)).Scan(job)
 		if err != nil {
 			ren.Text(w, http.StatusNotFound, "job not found")
+			return
 		}
 
 		ren.JSON(w, 200, job)
