@@ -10,73 +10,51 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi"
-	"github.com/go-redis/redis"
 	"gopkg.in/unrolled/render.v1"
 )
 
 func main() {
-	redisAddr := os.Getenv("REDIS_ADDR")
 	listenAddr := os.Getenv("LISTEN_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
 	if listenAddr == "" {
 		listenAddr = ":80"
 	}
 
+	queue, jobStore := queue(4)
+
 	mux := chi.NewRouter()
 	ren := render.New()
-	rds := redis.NewClient(&redis.Options{
-		Addr: redisAddr,
-	})
-	if _, err := rds.Ping().Result(); err != nil {
-		panic(err)
-	}
-
-	go queue(rds, 4)
 
 	mux.Get("/", http.FileServer(publicAssets).ServeHTTP)
 
 	mux.Post("/download", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)
-		job := &job{}
-		err := json.NewDecoder(r.Body).Decode(job)
+		var dlReq downloadRequest
+		err := json.NewDecoder(r.Body).Decode(&dlReq)
 		if err != nil {
 			ren.Text(w, http.StatusBadRequest, "unable to decode input")
 			return
 		}
 
-		id, err := rds.Incr("job_id").Result()
-		if err != nil {
-			ren.Text(w, http.StatusInternalServerError, "failed on redis")
-			return
-		}
+		dlReq.ID = jobStore.NextID()
+		queue <- dlReq
 
-		job.ID = id
-		job.Status = "queued"
-		job.Output = ""
-
-		rds.Set(job.Key(), job, 0)
-		rds.Publish("download_queue", job.Key())
-
-		w.Header().Set("Location", fmt.Sprintf("/download/%d", job.ID))
+		w.Header().Set("Location", fmt.Sprintf("/download/%d", dlReq.ID))
 	})
 
 	mux.Get("/download/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 32)
 		if err != nil {
 			ren.Text(w, http.StatusBadRequest, "given id is invalid")
 			return
 		}
 
-		job := &job{}
-		err = rds.Get(JobKey(id)).Scan(job)
-		if err != nil {
-			ren.Text(w, http.StatusNotFound, "job not found")
+		j := jobStore.Get(int(id))
+		if j.ID == 0 {
+			ren.Text(w, http.StatusNotFound, "not found")
 			return
 		}
 
-		ren.JSON(w, 200, job)
+		ren.JSON(w, 200, j)
 	})
 
 	http.ListenAndServe(listenAddr, mux)
