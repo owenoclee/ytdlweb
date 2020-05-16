@@ -10,7 +10,7 @@ func download(url string) (io.Reader, error) {
 		"youtube-dl",
 		"--newline",
 		"--all-subs",
-		"-o 'downloads/%(title)s-%(id)s.%(ext)s'",
+		"-odownloads/%(title)s-%(id)s.%(ext)s",
 		url,
 	)
 
