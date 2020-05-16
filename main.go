@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/go-chi/chi"
@@ -14,9 +15,23 @@ import (
 )
 
 func main() {
+	redisAddr := os.Getenv("REDIS_ADDR")
+	listenAddr := os.Getenv("LISTEN_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	if listenAddr == "" {
+		listenAddr = ":80"
+	}
+
 	mux := chi.NewRouter()
 	ren := render.New()
-	rds := redis.NewClient(&redis.Options{})
+	rds := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+	if _, err := rds.Ping().Result(); err != nil {
+		panic(err)
+	}
 
 	go queue(rds, 4)
 
@@ -64,5 +79,5 @@ func main() {
 		ren.JSON(w, 200, job)
 	})
 
-	http.ListenAndServe(":3000", mux)
+	http.ListenAndServe(listenAddr, mux)
 }
