@@ -16,7 +16,7 @@ import (
 func main() {
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
-		listenAddr = ":80"
+		listenAddr = ":3000"
 	}
 
 	queue, jobStore := queue(4)
@@ -57,5 +57,5 @@ func main() {
 		ren.JSON(w, 200, j)
 	})
 
-	http.ListenAndServe(listenAddr, mux)
+	panic(http.ListenAndServe(listenAddr, mux))
 }
