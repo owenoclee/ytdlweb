@@ -4,7 +4,7 @@ WORKDIR /ytdlweb
 COPY . .
 
 ENV CGO_ENABLED=0
-RUN go build
+RUN go generate && go build
 
 FROM alpine:3.11
 
