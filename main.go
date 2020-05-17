@@ -15,11 +15,15 @@ import (
 
 func main() {
 	listenAddr := os.Getenv("LISTEN_ADDR")
+	workerCount, _ := strconv.ParseInt(os.Getenv("WORKER_COUNT"), 10, 32)
 	if listenAddr == "" {
 		listenAddr = ":3000"
 	}
+	if workerCount < 1 {
+		workerCount = 4
+	}
 
-	queue, jobStore := queue(4)
+	queue, jobStore := queue(int(workerCount))
 
 	mux := chi.NewRouter()
 	ren := render.New()
